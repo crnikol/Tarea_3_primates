@@ -1,0 +1,242 @@
+---
+title: "Tarea 3"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r bibliotecas, include=FALSE, message=FALSE}
+library(sf)
+library(raster)
+library(dplyr)
+library(spData)
+library(leaflet)
+library(plotly)
+library(DT)
+```
+
+```{r carga de datos,echo=TRUE, message=FALSE, warning=FALSE}
+# Carga de datos
+ primates_cr_registros <-
+  st_read(
+    "https://raw.githubusercontent.com/gf0604-procesamientodatosgeograficos/2021i-datos/main/gbif/primates-cr-registros.csv",
+    options = c(
+      "X_POSSIBLE_NAMES=decimalLongitude",
+      "Y_POSSIBLE_NAMES=decimalLatitude",
+    quiet = TRUE
+  )
+  )
+
+# Asignacion de CRS
+st_crs(primates_cr_registros) = 4326
+
+# Capa geoespacial de cantones 
+cantones <- 
+  st_read("https://raw.githubusercontent.com/gf0604-procesamientodatosgeograficos/2021i-datos/main/ign/delimitacion-territorial-administrativa/cr_cantones_simp_wgs84.geojson",
+              quiet = TRUE
+  )
+
+# Capa geoespacial de provincias
+provincias <-
+  st_read("https://raw.githubusercontent.com/gf0604-procesamientodatosgeograficos/2021i-datos/main/ign/delimitacion-territorial-administrativa/cr_provincias_simp_wgs84.geojson",
+    quiet = TRUE
+  )
+
+```
+
+```{r capa de altitud y color, echo=TRUE, message=FALSE, warning=FALSE}
+# Carga de capa de altitud
+alt <- getData(
+  "worldclim",
+  var = "alt",
+  res = .5,
+  lon = -84,
+  lat = 10
+)
+altitud <-
+  alt %>%
+  crop(provincias) %>%
+  mask(provincias)
+
+# Carga de capa de color
+rcol <- colorNumeric(c("#98FB98", "#808000", "#66CDAA"),
+                     values(altitud),
+                     na.color = "transparent")
+
+
+
+```
+
+
+```{r Cruce espacial con la tabla de cantones, echo=TRUE, message=FALSE, warning=FALSE}
+# Cruce espacial con la tabla de cantones, para obtener el nombre del cantón
+primates_cr_registros <- 
+  primates_cr_registros %>%
+  st_join(cantones["canton"])
+```
+
+```{r Tabla de registros, echo=TRUE, message=FALSE, warning=FALSE}
+# Tabla de registros de presencia
+primates_cr_registros%>%
+  st_drop_geometry() %>%
+  select(stateProvince,canton,family, species, eventDate) %>%
+  datatable(
+    colnames = c("Provincia", "Canton", "Especie", "Familia", "Fecha"),
+    options = list( searchHighlight = TRUE,language = list(url = '//cdn.datatables.net/plug-ins/1.10.11/i18n/Spanish.json')
+    )
+  )
+
+```
+
+```{r Filtro, echo=TRUE, message=FALSE, warning=FALSE}
+## Filtro para contar especies
+mono_ardilla <-  primates_cr_registros %>% 
+  dplyr::select(stateProvince,canton,family, species, eventDate) %>%
+  filter(species == "Saimiri oerstedii")
+mono_aullador <-  primates_cr_registros %>% 
+  dplyr::  select(stateProvince,canton,family, species, eventDate) %>%
+  filter(species == "Alouatta palliata")
+mono_carablanca <-  primates_cr_registros %>% 
+  dplyr::  select(stateProvince,canton,family, species, eventDate)%>%
+  filter(species == "Cebus capucinus")
+mono_arana <-  primates_cr_registros  %>%
+  dplyr::select(stateProvince,canton,family, species, eventDate)%>%
+  filter(species == "Ateles geoffroyi Kuhl")
+
+```
+
+```{r Grafico pastel, echo=TRUE, message=FALSE, warning=FALSE}
+## Grafico pastel
+primates_cr_registros%>%
+  plot_ly(
+    labels = ~c("mono_ardilla","mono_aullador","mono_carablanca","mono_arana"
+    ),
+    values = ~c(453, 1994, 1463, 599),
+    
+    type = "pie")%>%
+  config(locale = "es")%>%
+  layout(
+    title = "",
+    xaxis = list(showgrid = FALSE,zeroline = FALSE,showticklabels = FALSE
+    ),
+    yaxis = list( showgrid = FALSE,zeroline = FALSE, showticklabels = FALSE
+    )
+  )
+
+```
+
+```{r Mapa, echo=TRUE, message=FALSE, warning=FALSE}
+au <- primates_cr_registros %>%
+  dplyr::select(species,
+                stateProvince,
+                canton,
+                eventDate) %>%
+  filter(species == "Alouatta palliata")
+
+ard <- primates_cr_registros %>%
+  dplyr::select(species,
+                stateProvince,
+                canton,
+                eventDate) %>%
+  filter(species == "Saimiri oerstedii")
+
+ara <- primates_cr_registros %>%
+  dplyr::select(species,
+                stateProvince,
+                canton,
+                eventDate) %>%
+  filter(species == "Ateles geoffroyi")
+
+cara <- primates_cr_registros %>%
+  dplyr::select(species,
+                stateProvince,
+                canton,
+                eventDate) %>%
+  filter(species == "Cebus capucinus")
+
+mau <- paste0((au$species),
+              (au$stateProvince),
+              (au$canton),
+              (au$eventDate))
+
+mard <- paste0((ard$species),
+               (ard$stateProvince),
+               (ard$canton),
+               (ard$eventDate))
+mara <- paste0((ara$species),
+               (ara$stateProvince),
+               (ara$canton),
+               (ara$eventDate))
+mcara <- paste0((cara$species),
+                (cara$stateProvince),
+                (cara$canton),
+                (cara$eventDate))
+primates_cr_registros %>%
+  leaflet() %>%
+  addProviderTiles(providers$OpenStreetMap.Mapnik, group = "OpenStreetMap") %>%
+  addProviderTiles(providers$Stamen.TonerLite, group = "Stamen Toner Lite") %>%
+  addProviderTiles(providers$Esri.WorldImagery, group = "Imágenes de ESRI") %>%
+  addRasterImage(
+    altitud, 
+    colors = rcol, 
+    opacity = 0.8,
+    group = "Altitud") %>%
+  addCircleMarkers(
+    data = au,
+    stroke = F,
+    radius = 4,
+    fillColor = "#FFA07A",
+    fillOpacity = 1,
+    popup = mau,
+    group = "Alouatta palliata"
+  ) %>%
+  addCircleMarkers(
+    data = ard,
+    stroke = F,
+    radius = 4,
+    fillColor = "#FFA500",
+    fillOpacity = 1,
+    popup = mard,
+    group = "Saimiri oerstedii"
+  ) %>%
+  addCircleMarkers(
+    data = ara,
+    stroke = F,
+    radius = 4,
+    fillColor = "	#4B0082",
+    fillOpacity = 1,
+    popup = mara,
+    group = "Ateles geoffroyi"
+  ) %>%
+  addCircleMarkers(
+    data = cara,
+    stroke = F,
+    radius = 4,
+    fillColor = "	#00FF00",
+    fillOpacity = 1,
+    popup = mcara,
+    group = "Cebus capucinus"
+  ) %>%
+  addLayersControl(
+    baseGroups = c("OpenStreetMap", "Stamen Toner Lite", 
+                   "Imágenes de ESRI"),
+    overlayGroups = c("Mono Aullador", "Mono Ardilla", 
+                      "Mono Araña", "Mono Carablanca"
+                      ,"Altitud")
+  ) %>%
+  addMiniMap(tiles = providers$Stamen.OpenStreetMap.Mapnik,
+             position = "bottomleft",
+             toggleDisplay = TRUE
+  )
+
+
+```
+
+
+
+
+
+
+
